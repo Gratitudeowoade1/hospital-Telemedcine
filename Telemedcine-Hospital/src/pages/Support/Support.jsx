@@ -11,6 +11,7 @@ import {
   FileText,
   Star
 } from 'lucide-react'
+import api from '../../services/api'
 
 // Initial dummy tickets data
 const INITIAL_TICKETS = [
@@ -100,6 +101,37 @@ export default function Support() {
   const [feedbackComment, setFeedbackComment] = useState('')
   const [feedbackSuccess, setFeedbackSuccess] = useState(false)
 
+  // Fetch real tickets from backend API
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadTickets() {
+      try {
+        const res = await api.getSupportTickets().catch(() => null)
+        if (isMounted && res?.success && res.data?.length) {
+          const mapped = res.data.map(t => ({
+            id: `TCK-${t.id}`,
+            apiId: t.id,
+            subject: t.title,
+            category: t.category || 'General',
+            priority: t.priority || 'Medium',
+            status: t.status === 'UNREAD' ? 'Open' : (t.status || 'Open'),
+            assignedTo: 'IT Support Desk',
+            date: t.created_at || '2026-10-12',
+            description: t.message,
+            authorName: t.author_name || 'Patient'
+          }))
+          setTickets(mapped)
+        }
+      } catch (err) {
+        console.warn('Support tickets fetch note:', err.message)
+      }
+    }
+
+    loadTickets()
+    return () => { isMounted = false }
+  }, [])
+
   // Sync to localStorage
   useEffect(() => {
     localStorage.setItem('hospital_tickets', JSON.stringify(tickets))
@@ -126,19 +158,38 @@ export default function Support() {
   })
 
   // Create Ticket Form Submit
-  const handleCreateTicketSubmit = (e) => {
+  const handleCreateTicketSubmit = async (e) => {
     e.preventDefault()
     const formData = new FormData(e.target)
-    
+    const title = formData.get('subject')
+    const message = formData.get('description')
+    const category = formData.get('category')
+    const priority = formData.get('priority')
+
+    let serverTicketId = `TCK-${Date.now().toString().slice(-4)}`
+    try {
+      const res = await api.createSupportTicket({
+        title,
+        message,
+        category,
+        priority
+      })
+      if (res?.ticketId) {
+        serverTicketId = `TCK-${res.ticketId}`
+      }
+    } catch (err) {
+      console.warn('Backend create ticket note:', err.message)
+    }
+
     const newTicket = {
-      id: `TCK-${Date.now().toString().slice(-4)}`,
-      subject: formData.get('subject'),
-      category: formData.get('category'),
-      priority: formData.get('priority'),
+      id: serverTicketId,
+      subject: title,
+      category,
+      priority,
       status: 'Open',
       assignedTo: 'Unassigned',
       date: new Date().toISOString().split('T')[0],
-      description: formData.get('description')
+      description: message
     }
 
     setTickets([newTicket, ...tickets])

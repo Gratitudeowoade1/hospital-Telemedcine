@@ -20,6 +20,7 @@ import {
   YAxis,
   Tooltip
 } from 'recharts'
+import api from '../../services/api'
 
 // Initial dummy billing data
 const INITIAL_INVOICES = [
@@ -115,6 +116,7 @@ export default function Billings() {
     const saved = localStorage.getItem('hospital_invoices')
     return saved ? JSON.parse(saved) : INITIAL_INVOICES
   })
+  const [summary, setSummary] = useState(null)
 
   // State controls
   const [activeTab, setActiveTab] = useState('invoices') // 'invoices', 'create', 'charts'
@@ -130,17 +132,59 @@ export default function Billings() {
   // Invoice creation form items builder state
   const [formItems, setFormItems] = useState([{ name: '', price: 0, qty: 1 }])
 
+  // Fetch real invoices and summary from API
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadBillings() {
+      try {
+        const [billingsRes, summaryRes] = await Promise.all([
+          api.getBillings().catch(() => null),
+          api.getBillingSummary().catch(() => null)
+        ])
+
+        if (isMounted && billingsRes?.success && billingsRes.data?.length) {
+          const mapped = billingsRes.data.map(item => ({
+            id: item.invoice_number || `INV-${item.id}`,
+            patientName: item.patient_name || 'Akin Yemi',
+            date: item.invoice_date || item.created_at || '2026-10-12',
+            dueDate: item.due_date || '2026-10-26',
+            items: [{ name: item.service_name || 'Medical Service', price: item.total_amount, qty: 1 }],
+            discount: 0,
+            tax: 0,
+            total: item.total_amount || 0,
+            status: item.status ? item.status.charAt(0).toUpperCase() + item.status.slice(1).toLowerCase() : 'Pending',
+            paymentMethod: item.payment_method || 'Card',
+            insuranceProvider: 'None',
+            claimId: '',
+            claimStatus: 'N/A'
+          }))
+          setInvoices(mapped)
+        }
+
+        if (isMounted && summaryRes?.success && summaryRes.data) {
+          setSummary(summaryRes.data)
+        }
+      } catch (err) {
+        console.warn('Billings fetch note:', err.message)
+      }
+    }
+
+    loadBillings()
+    return () => { isMounted = false }
+  }, [])
+
   // Sync back to local storage
   useEffect(() => {
     localStorage.setItem('hospital_invoices', JSON.stringify(invoices))
   }, [invoices])
 
   // Calculation metrics
-  const totalBilled = invoices.reduce((sum, inv) => sum + inv.total, 0)
-  const totalReceived = invoices
+  const totalBilled = summary?.total_revenue ?? invoices.reduce((sum, inv) => sum + inv.total, 0)
+  const totalReceived = summary?.total_paid ?? invoices
     .filter(inv => inv.status === 'Paid')
     .reduce((sum, inv) => sum + inv.total, 0)
-  const totalOutstanding = invoices
+  const totalOutstanding = summary ? (summary.total_pending + summary.total_overdue) : invoices
     .filter(inv => inv.status === 'Pending' || inv.status === 'Overdue')
     .reduce((sum, inv) => sum + inv.total, 0)
   const claimApprovalsCount = invoices.filter(inv => inv.claimStatus === 'Approved').length
@@ -180,7 +224,7 @@ export default function Billings() {
     )
   }
 
-  const handleCreateInvoiceSubmit = (e) => {
+  const handleCreateInvoiceSubmit = async (e) => {
     e.preventDefault()
     const formData = new FormData(e.target)
     
@@ -192,12 +236,31 @@ export default function Billings() {
 
     const payMethod = formData.get('paymentMethod')
     const insProvider = formData.get('insuranceProvider') || 'None'
+    const dueDate = formData.get('dueDate') || new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0]
+    const serviceName = formItems[0]?.name || 'Clinical Care'
+
+    // Attempt backend API create
+    let serverInvoiceNumber = `INV-${Date.now().toString().slice(-4)}`
+    try {
+      const createdRes = await api.createInvoice({
+        patient_id: 1,
+        service_name: serviceName,
+        total_amount: total,
+        payment_method: payMethod,
+        due_date: dueDate
+      })
+      if (createdRes?.invoiceNumber) {
+        serverInvoiceNumber = createdRes.invoiceNumber
+      }
+    } catch (err) {
+      console.warn('Backend invoice create note:', err.message)
+    }
 
     const newInvoice = {
-      id: `INV-${Date.now().toString().slice(-4)}`,
-      patientName: formData.get('patientName'),
+      id: serverInvoiceNumber,
+      patientName: formData.get('patientName') || 'Akin Yemi',
       date: new Date().toISOString().split('T')[0],
-      dueDate: formData.get('dueDate'),
+      dueDate: dueDate,
       items: formItems,
       discount,
       tax,
