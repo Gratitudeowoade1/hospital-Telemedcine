@@ -1,7 +1,9 @@
+import { useState, useEffect } from 'react';
 import {
     BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
     XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts';
+import api from '../../services/api';
 
 const overallAppointmentData = [
     { time: '8:00', value: 30 }, { time: '9:00', value: 55 },
@@ -19,26 +21,116 @@ const patientsPaceData = [
     { x: 9, new: 30, return: 70, vip: 40 }, { x: 10, new: 50, return: 55, vip: 65 },
 ];
 
-const diagnosesData = [
+const initialDiagnosesData = [
     { label: 'Cold',       current: 559, total: 742, color: 'bg-[#10AD69]' },
     { label: 'Fracture',   current: 156, total: 249, color: 'bg-red-500'   },
     { label: 'Concussion', current: 84,  total: 120, color: 'bg-[#6366F1]' },
     { label: 'Heptatis',   current: 946, total: 950, color: 'bg-red-400'   },
 ];
 
-const appointmentsOverviewData = [
+const initialAppointmentsOverview = [
     { name: 'Male',     value: 30, color: '#EAB308' },
     { name: 'Female',   value: 45, color: '#C084FC' },
     { name: 'Children', value: 25, color: '#60A5FA' },
 ];
 
-const upcomingPatients = [
-    { name: 'Ademilola Joy', img: '/image2.png' },
-    { name: 'Ademilola Joy', img: '/image2.png' },
-    { name: 'Ademilola Joy', img: '/image2.png' },
+const initialUpcomingPatients = [
+    { name: 'Ademilola Joy', img: '/image2.png', time: '10:30', fee: 'NGN 50,000' },
+    { name: 'Ademilola Joy', img: '/image2.png', time: '11:15', fee: 'NGN 50,000' },
+    { name: 'Ademilola Joy', img: '/image2.png', time: '02:30', fee: 'NGN 50,000' },
 ];
 
 const Dashboard = ({ title }) => {
+    const [diagnoses, setDiagnoses] = useState(initialDiagnosesData);
+    const [overviewData, setOverviewData] = useState(initialAppointmentsOverview);
+    const [upcomingPatients, setUpcomingPatients] = useState(initialUpcomingPatients);
+    const [nextPatient, setNextPatient] = useState({
+        name: 'Polly Richardson',
+        type: 'USG + Consultation',
+        time: '10:30',
+        fee: 'NGN 50,000',
+        avatar: '/image1.png',
+        videoLink: null,
+    });
+    const [labTest, setLabTest] = useState({
+        patientName: 'Funke Akindele',
+        testName: 'Keeping Pregnant',
+        category: 'Prga test',
+    });
+    const [recentQuestion, setRecentQuestion] = useState({
+        message: 'Addiction blood bank bone marrow contagious disinfectants?',
+        date: '2 Nov 2024 / 01:05PM',
+    });
+
+    useEffect(() => {
+        let isMounted = true;
+
+        async function loadDashboardData() {
+            try {
+                // 1. Dashboard analytics stats
+                const statsRes = await api.getDashboardStats().catch(() => null);
+                if (isMounted && statsRes?.success) {
+                    if (statsRes.diagnosesStats?.length) {
+                        setDiagnoses(statsRes.diagnosesStats);
+                    }
+                    if (statsRes.appointmentOverview?.length) {
+                        setOverviewData(statsRes.appointmentOverview);
+                    }
+                }
+
+                // 2. Next patient
+                const nextRes = await api.getNextPatient().catch(() => null);
+                if (isMounted && nextRes?.success && nextRes.data) {
+                    setNextPatient({
+                        name: nextRes.data.patient_name || 'Polly Richardson',
+                        type: nextRes.data.type || 'USG + Consultation',
+                        time: nextRes.data.appointment_time || '10:30',
+                        fee: 'NGN 50,000',
+                        avatar: '/image1.png',
+                        videoLink: nextRes.data.video_link,
+                    });
+                }
+
+                // 3. Lab tests
+                const labRes = await api.getLabTests().catch(() => null);
+                if (isMounted && labRes?.success && labRes.data?.length) {
+                    const firstTest = labRes.data[0];
+                    setLabTest({
+                        patientName: firstTest.patient_name || 'Funke Akindele',
+                        testName: firstTest.test_name || 'Keeping Pregnant',
+                        category: firstTest.category || 'Prga test',
+                    });
+                }
+
+                // 4. Recent support questions
+                const supportRes = await api.getSupportTickets().catch(() => null);
+                if (isMounted && supportRes?.success && supportRes.data?.length) {
+                    const firstTicket = supportRes.data[0];
+                    setRecentQuestion({
+                        message: firstTicket.message || 'Addiction blood bank bone marrow contagious disinfectants?',
+                        date: firstTicket.created_at || '2 Nov 2024 / 01:05PM',
+                    });
+                }
+
+                // 5. Upcoming appointments
+                const apptRes = await api.getAppointments('?status=UPCOMING').catch(() => null);
+                if (isMounted && apptRes?.success && apptRes.data?.length) {
+                    const mapped = apptRes.data.slice(0, 3).map((item) => ({
+                        name: item.patient_name || 'Upcoming Patient',
+                        img: item.patient_avatar || '/image2.png',
+                        time: item.appointment_time || '10:30',
+                        fee: item.fee ? `NGN ${Number(item.fee).toLocaleString()}` : 'NGN 50,000',
+                    }));
+                    setUpcomingPatients(mapped);
+                }
+            } catch (err) {
+                console.warn('Dashboard data fetch note:', err.message);
+            }
+        }
+
+        loadDashboardData();
+        return () => { isMounted = false; };
+    }, []);
     return (
         <div className="p-4 sm:p-5 lg:p-6 bg-[#F8FAFC] min-h-screen w-full font-sans">
 
@@ -65,15 +157,25 @@ const Dashboard = ({ title }) => {
 
                             <div className="px-5 flex items-center space-x-4 my-4">
                                 <img
-                                    src="/image1.png"
-                                    alt="Polly Richardson"
+                                    src={nextPatient.avatar || "/image1.png"}
+                                    alt={nextPatient.name}
                                     className="w-12 h-12 rounded-full object-cover ring-2 ring-slate-100 flex-shrink-0"
                                 />
                                 <div className="flex-1 min-w-0">
-                                    <h3 className="font-bold text-slate-800 text-sm tracking-tight truncate">Polly Richardson</h3>
-                                    <p className="text-xs text-slate-400 font-semibold mt-0.5">USG + Consultation</p>
+                                    <h3 className="font-bold text-slate-800 text-sm tracking-tight truncate">{nextPatient.name}</h3>
+                                    <p className="text-xs text-slate-400 font-semibold mt-0.5">{nextPatient.type}</p>
                                 </div>
-                                <button className="w-9 h-9 rounded-full bg-[#E2F5ED] flex items-center justify-center text-[#22C55E] hover:bg-[#d1f0e2] transition-colors text-sm shadow-sm flex-shrink-0">
+                                <button
+                                    onClick={() => {
+                                        if (nextPatient.videoLink) {
+                                            window.open(nextPatient.videoLink, '_blank');
+                                        } else {
+                                            alert(`Initiating telehealth consultation session with ${nextPatient.name}`);
+                                        }
+                                    }}
+                                    title={nextPatient.videoLink ? "Join Telehealth Room" : "Contact Patient"}
+                                    className="w-9 h-9 rounded-full bg-[#E2F5ED] flex items-center justify-center text-[#22C55E] hover:bg-[#d1f0e2] transition-colors text-sm shadow-sm flex-shrink-0"
+                                >
                                     <img src="Icon.png" alt="" />
                                 </button>
                             </div>
@@ -81,9 +183,9 @@ const Dashboard = ({ title }) => {
                             <div className="mx-5 mb-4 px-1 py-3 border-t border-dashed border-slate-100 flex justify-between items-center text-xs text-slate-500 font-medium">
                                 <div className="flex items-center space-x-1.5">
                                     <span>⏰</span>
-                                    <span className="text-slate-700 font-bold">10:30</span>
+                                    <span className="text-slate-700 font-bold">{nextPatient.time}</span>
                                 </div>
-                                <span className="font-bold text-slate-800 bg-slate-50 px-2 py-1 rounded-md">NGN 50,000</span>
+                                <span className="font-bold text-slate-800 bg-slate-50 px-2 py-1 rounded-md">{nextPatient.fee}</span>
                                 <button className="text-slate-400 hover:text-slate-600 font-bold tracking-widest text-sm">•••</button>
                             </div>
                         </div>
@@ -101,14 +203,14 @@ const Dashboard = ({ title }) => {
                             <div className="px-5 my-4">
                                 <div className="flex items-center space-x-1 text-xs text-slate-400 mb-0">
                                     <span>🔗</span>
-                                    <span className="font-semibold text-slate-600">Funke Akindele</span>
+                                    <span className="font-semibold text-slate-600">{labTest.patientName}</span>
                                 </div>
                                 <div className="flex items-center justify-between space-x-2">
-                                    <h3 className="font-bold text-slate-600 text-sm tracking-tight">Keeping Pregnant</h3>
+                                    <h3 className="font-bold text-slate-600 text-sm tracking-tight">{labTest.testName}</h3>
                                     <button className="text-slate-400 hover:text-slate-600 font-bold tracking-widest">•••</button>
                                 </div>
                                 <div className="flex items-center space-x-2 mt-2">
-                                    <span className="text-xs font-bold text-slate-500 bg-slate-50 px-2 py-0 rounded-md border border-slate-100">Prga test</span>
+                                    <span className="text-xs font-bold text-slate-500 bg-slate-50 px-2 py-0 rounded-md border border-slate-100">{labTest.category}</span>
                                     <span className="w-2 h-2 rounded-full bg-[#EF4444] animate-pulse"></span>
                                 </div>
                             </div>
@@ -196,9 +298,9 @@ const Dashboard = ({ title }) => {
                             </div>
 
                             <div className="px-5 py-4">
-                                <div className="text-slate-400 text-[10px] font-bold mb-1">2 Nov 2024 / 01:05PM</div>
+                                <div className="text-slate-400 text-[10px] font-bold mb-1">{recentQuestion.date}</div>
                                 <h4 className="font-bold text-slate-800 text-sm leading-snug tracking-tight">
-                                    Addiction blood bank bone marrow contagious disinfectants?
+                                    {recentQuestion.message}
                                 </h4>
                             </div>
 
@@ -219,7 +321,7 @@ const Dashboard = ({ title }) => {
                                 <h3 className="font-semibold text-slate-700 text-sm tracking-wide">Confirmed Diagnoses</h3>
                             </div>
                             <div className="p-5">
-                                {diagnosesData.map(({ label, current, total, color }) => (
+                                {diagnoses.map(({ label, current, total, color }) => (
                                     <div key={label} className="mb-4 last:mb-0">
                                         <div className="flex justify-between items-center mb-1">
                                             <span className="text-base sm:text-lg font-bold text-gray-900">{current} of {total}</span>
@@ -228,7 +330,7 @@ const Dashboard = ({ title }) => {
                                         <div className="w-full bg-gray-200 rounded-full h-2">
                                             <div
                                                 className={`${color} h-2 rounded-full transition-all duration-500`}
-                                                style={{ width: `${Math.round((current / total) * 100)}%` }}
+                                                style={{ width: `${Math.round((current / (total || 1)) * 100)}%` }}
                                             />
                                         </div>
                                     </div>
@@ -297,9 +399,9 @@ const Dashboard = ({ title }) => {
                                     <div className="flex justify-between items-center mt-2.5 pt-2 border-t border-dashed border-slate-100 text-[10px] text-slate-400 font-bold">
                                         <span className="flex items-center space-x-1">
                                             <img src="Icon (1).png" alt="" className="w-3.5" />
-                                            <span className="text-slate-600 ml-0.5">10:30</span>
+                                            <span className="text-slate-600 ml-0.5">{user.time || '10:30'}</span>
                                         </span>
-                                        <span className="text-slate-800 font-bold bg-white px-1.5 py-0.5 rounded border border-slate-100">NGN 50,000</span>
+                                        <span className="text-slate-800 font-bold bg-white px-1.5 py-0.5 rounded border border-slate-100">{user.fee || 'NGN 50,000'}</span>
                                     </div>
                                 </div>
                             ))}
@@ -317,7 +419,7 @@ const Dashboard = ({ title }) => {
                             <ResponsiveContainer width="55%" height={180}>
                                 <PieChart>
                                     <Pie
-                                        data={appointmentsOverviewData}
+                                        data={overviewData}
                                         cx="50%"
                                         cy="50%"
                                         outerRadius={75}
@@ -325,7 +427,7 @@ const Dashboard = ({ title }) => {
                                         strokeWidth={2}
                                         stroke="#ffffff"
                                     >
-                                        {appointmentsOverviewData.map((entry, index) => (
+                                        {overviewData.map((entry, index) => (
                                             <Cell key={index} fill={entry.color} />
                                         ))}
                                     </Pie>
@@ -334,7 +436,7 @@ const Dashboard = ({ title }) => {
                             </ResponsiveContainer>
 
                             <div className="flex flex-col gap-2.5">
-                                {appointmentsOverviewData.map((entry) => (
+                                {overviewData.map((entry) => (
                                     <div key={entry.name} className="flex items-center gap-2 text-xs text-gray-600">
                                         <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
                                         <span className="font-medium">{entry.name}</span>

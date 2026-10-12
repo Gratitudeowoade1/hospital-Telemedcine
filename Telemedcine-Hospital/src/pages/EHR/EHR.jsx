@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Search,
   Mic,
@@ -13,6 +13,7 @@ import {
   Microscope,
   Pill,
 } from "lucide-react";
+import api from "../../services/api";
 
 // Data Constants
 const TABS = ["All", "Tests", "Advice", "Labs", "Docs"];
@@ -495,16 +496,90 @@ function RightPanel() {
 // Master Component Wrapper
 export default function EHRContent() {
   const [activeTab, setActiveTab] = useState("Tests");
+  const [records, setRecords] = useState(PATIENTS);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadEHR() {
+      try {
+        const [ehrRes, labRes] = await Promise.all([
+          api.getEHRRecords().catch(() => null),
+          api.getLabTests().catch(() => null),
+        ]);
+
+        const newItems = [];
+
+        if (labRes?.success && labRes.data?.length) {
+          labRes.data.forEach((l, idx) => {
+            newItems.push({
+              id: 100 + idx,
+              tab: "Labs",
+              name: l.patient_name || "Patient",
+              role: l.category || "Pathology Lab",
+              avatar: (l.patient_name || "P").substring(0, 2).toUpperCase(),
+              avatarColor: "bg-cyan-500",
+              type: "Lab",
+              label: l.test_name,
+              date: l.test_date || "Recent",
+              icon: FlaskConical,
+              iconBg: "bg-cyan-50",
+            });
+          });
+        }
+
+        if (ehrRes?.success && ehrRes.data?.length) {
+          ehrRes.data.forEach((r, idx) => {
+            newItems.push({
+              id: 200 + idx,
+              tab: "Advice",
+              name: r.doctor_name || "Dr. Richardson",
+              role: "Doctor",
+              avatar: (r.doctor_name || "DR").substring(0, 2).toUpperCase(),
+              avatarColor: "bg-emerald-500",
+              type: "Advice",
+              label: r.diagnosis || "Health Advice",
+              date: r.record_date || "Recent",
+              icon: MessageSquareText,
+              iconBg: "bg-emerald-50",
+            });
+            newItems.push({
+              id: 300 + idx,
+              tab: "Docs",
+              name: r.patient_name || "Patient Record",
+              role: "Prescription",
+              avatar: "RX",
+              avatarColor: "bg-orange-500",
+              type: "Document",
+              label: r.prescription || "Medical Treatment",
+              date: r.record_date || "Recent",
+              icon: FileText,
+              iconBg: "bg-orange-50",
+            });
+          });
+        }
+
+        if (isMounted && newItems.length > 0) {
+          setRecords([...newItems, ...PATIENTS]);
+        }
+      } catch (err) {
+        console.warn("EHR API fetch note:", err.message);
+      }
+    }
+
+    loadEHR();
+    return () => { isMounted = false; };
+  }, []);
 
   const filteredPatients =
     activeTab === "All"
-      ? PATIENTS
-      : PATIENTS.filter((p) => p.tab === activeTab);
+      ? records
+      : records.filter((p) => p.tab === activeTab);
 
   const countFor = (tab) =>
     tab === "All"
-      ? PATIENTS.length
-      : PATIENTS.filter((p) => p.tab === tab).length;
+      ? records.length
+      : records.filter((p) => p.tab === tab).length;
 
   return (
     <div className="bg-[#FAFAFA] min-h-screen p-3 sm:p-5 lg:p-7 xl:p-8 text-gray-800 font-sans selection:bg-emerald-100">

@@ -22,6 +22,7 @@ import {
   Cell,
   Tooltip
 } from 'recharts'
+import api from '../../services/api'
 
 // Initial dummy inventory data
 const INITIAL_ITEMS = [
@@ -144,6 +145,39 @@ export default function AssetInventory() {
   // PO creation builder items state
   const [poBuilderItems, setPoBuilderItems] = useState([{ name: '', qty: 1 }])
 
+  // Fetch real items from backend API
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadInventory() {
+      try {
+        const res = await api.getInventory().catch(() => null)
+        if (isMounted && res?.success && res.data?.length) {
+          const mapped = res.data.map(item => ({
+            id: `INV-${item.id}`,
+            apiId: item.id,
+            name: item.item_name,
+            category: item.category || 'Supplies',
+            stock: item.quantity,
+            threshold: item.reorder_level || 10,
+            unit: item.unit || 'Units',
+            expiryDate: '2028-12-31',
+            supplier: item.location || 'Hospital Pharmacy',
+            assignedTo: item.location || 'Central Depot',
+            maintenanceDate: 'N/A',
+            maintenanceStatus: item.status === 'LOW_STOCK' ? 'Low Stock' : 'Optimal'
+          }))
+          setItems(mapped)
+        }
+      } catch (err) {
+        console.warn('Inventory fetch note:', err.message)
+      }
+    }
+
+    loadInventory()
+    return () => { isMounted = false }
+  }, [])
+
   // Sync to localStorage
   useEffect(() => {
     localStorage.setItem('hospital_inventory', JSON.stringify(items))
@@ -218,16 +252,23 @@ export default function AssetInventory() {
   }
 
   // Stock In / Out Adjustment Trigger
-  const handleStockAdjustSubmit = (e) => {
+  const handleStockAdjustSubmit = async (e) => {
     e.preventDefault()
     const formData = new FormData(e.target)
     const adjQty = parseInt(formData.get('qty') || '0')
     const adjType = formData.get('type') // 'Stock In' or 'Stock Out'
     const note = formData.get('note')
 
+    const nextStock = adjType === 'Stock In' ? selectedItem.stock + adjQty : Math.max(0, selectedItem.stock - adjQty)
+
+    // Sync to backend API
+    const targetApiId = selectedItem.apiId || (parseInt(selectedItem.id.replace(/\D/g, '')) || 1)
+    api.updateStock(targetApiId, nextStock).catch(err => {
+      console.warn('Backend stock update note:', err.message)
+    })
+
     const updated = items.map(item => {
       if (item.id === selectedItem.id) {
-        const nextStock = adjType === 'Stock In' ? item.stock + adjQty : Math.max(0, item.stock - adjQty)
         return {
           ...item,
           stock: nextStock
@@ -239,7 +280,7 @@ export default function AssetInventory() {
     setItems(updated)
     setSelectedItem({
       ...selectedItem,
-      stock: adjType === 'Stock In' ? selectedItem.stock + adjQty : Math.max(0, selectedItem.stock - adjQty)
+      stock: nextStock
     })
 
     // Log transaction

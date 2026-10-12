@@ -12,6 +12,8 @@ import {
 import TabSwitcher from '../components/auth/TabSwitcher'
 import FeatureCard from '../components/auth/FeatureCard'
 
+import api from '../services/api'
+
 const TABS = [
   { key: 'patient', label: 'Patient', icon: User },
   { key: 'staff', label: 'Hospital Staff', icon: Building2 },
@@ -20,20 +22,48 @@ const TABS = [
 const LoginPage = () => {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('patient')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const [email, setEmail] = useState('doctor.richardson@hospital.com')
+  const [password, setPassword] = useState('Password123!')
   const [remember, setRemember] = useState(false)
   const [error, setError] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     if (!email || !password) {
       setError('Please enter your email and password.')
       return
     }
     setError('')
-    localStorage.setItem('token', 'mock-token')
-    navigate('/dashboard')
+    setIsLoading(true)
+
+    try {
+      const res = await api.login({ email, password })
+      if (res.token) {
+        navigate('/dashboard')
+      } else {
+        throw new Error(res.message || 'Login failed')
+      }
+    } catch (err) {
+      console.warn('API login error, falling back if offline:', err)
+      // If offline or local mock mode, allow fallback login with notice
+      if (!err.status) {
+        localStorage.setItem('token', 'mock-offline-token')
+        localStorage.setItem(
+          'user',
+          JSON.stringify({
+            full_name: email.includes('richardson') ? 'Dr. Polly Richardson' : 'Akin Yemi',
+            email,
+            role: email.includes('richardson') ? 'DOCTOR' : 'PATIENT',
+          })
+        )
+        navigate('/dashboard')
+      } else {
+        setError(err.message || 'Invalid credentials. Please verify your email and password.')
+      }
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -160,12 +190,15 @@ const LoginPage = () => {
               {/* Submit */}
               <button
                 type="submit"
-                className="w-full py-2.5 rounded-md text-sm font-semibold text-white transition-colors"
+                disabled={isLoading}
+                className={`w-full py-2.5 rounded-md text-sm font-semibold text-white transition-colors ${
+                  isLoading ? 'opacity-70 cursor-not-allowed' : ''
+                }`}
                 style={{ backgroundColor: '#10AD69' }}
-                onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#0d9457')}
-                onMouseOut={(e) => (e.currentTarget.style.backgroundColor = '#10AD69')}
+                onMouseOver={(e) => !isLoading && (e.currentTarget.style.backgroundColor = '#0d9457')}
+                onMouseOut={(e) => !isLoading && (e.currentTarget.style.backgroundColor = '#10AD69')}
               >
-                Sign In
+                {isLoading ? 'Signing In...' : 'Sign In'}
               </button>
             </form>
 
